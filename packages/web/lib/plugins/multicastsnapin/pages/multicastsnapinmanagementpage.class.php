@@ -268,8 +268,8 @@ class MulticastSnapinManagementPage extends FOGPage
             $hostCount = self::getClass('GroupAssociationManager')
                 ->count(array('groupID' => $Group->get('id')));
 
-            // Only include groups with more than 2 hosts
-            if ($hostCount > 2) {
+            // Only include groups with at least 3 hosts
+            if ($hostCount >= 3) {
                 $groupOptions[$Group->get('id')] = sprintf(
                     '%s (%d hosts)',
                     $Group->get('name'),
@@ -310,9 +310,6 @@ class MulticastSnapinManagementPage extends FOGPage
                 ->step('2')
                 ->required('required')
                 ->placeholder(_('Must be an even number')),
-            _('Network Interface') => self::getClass('Process')
-                ->input('interface', 'eth0')
-                ->placeholder(_('e.g., eth0, ens160')),
             '&nbsp;' => self::getClass('Process')
                 ->input('add', _('Create Multicast Session'))
                 ->type('submit'),
@@ -322,7 +319,7 @@ class MulticastSnapinManagementPage extends FOGPage
         if (empty($groupOptions)) {
             printf(
                 '<div class="info-box">%s</div>',
-                _('No groups with more than 2 hosts available. Please create a group with at least 3 hosts to use multicast deployment.')
+                _('No groups with at least 3 hosts available. Please create a group with at least 3 hosts to use multicast deployment.')
             );
         }
 
@@ -367,7 +364,6 @@ class MulticastSnapinManagementPage extends FOGPage
             $groupID = (int) ($_POST['groupID'] ?? 0);
             $storagegroupID = (int) ($_POST['storagegroupID'] ?? 0);
             $port = (int) ($_POST['port'] ?? 0);
-            $interface = trim($_POST['interface'] ?? 'eth0');
 
             // Validate snapin
             if ($snapinID < 1) {
@@ -427,6 +423,17 @@ class MulticastSnapinManagementPage extends FOGPage
                 $Snapin->get('name'),
                 $Group->get('name')
             );
+
+            // Get network interface from storage node or use default
+            $interface = null;
+            $masterNode = $StorageGroup->getMasterStorageNode();
+            if ($masterNode && $masterNode->isValid()) {
+                $interface = $masterNode->get('interface');
+            }
+            // Fallback to FOG default interface setting
+            if (empty($interface)) {
+                $interface = self::getSetting('FOG_MULTICAST_INTERFACE') ?: 'eth0';
+            }
 
             // Create session
             $Session = self::getClass('MulticastSnapinSession')

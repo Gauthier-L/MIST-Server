@@ -8,8 +8,11 @@ Au lieu que chaque client télécharge individuellement le snapin via FTP (unica
 
 ## Fonctionnalités
 
-- ✅ Déploiement multicast de snapins vers plusieurs hosts
-- ✅ Interface web de gestion des sessions multicast
+- ✅ Déploiement multicast de snapins vers plusieurs hosts (≥ 3 machines)
+- ✅ Interface web simplifiée de gestion des sessions multicast
+- ✅ Assignation automatique par groupes de hosts
+- ✅ Génération automatique des noms de session
+- ✅ Configuration automatique de l'interface réseau
 - ✅ Service daemon automatique (FOGMulticastSnapinManager)
 - ✅ Scripts wrapper automatiques pour clients Windows et Linux
 - ✅ Compatible avec l'infrastructure multicast existante de MIST
@@ -135,19 +138,21 @@ Au lieu que chaque client télécharge individuellement le snapin via FTP (unica
    - Aller dans **Multicast Snapin → Create New Session**
    - Remplir le formulaire :
      - **Snapin** : Sélectionner le snapin à déployer
-     - **Host Group** : Sélectionner le groupe (seuls les groupes avec > 2 machines sont affichés)
+     - **Host Group** : Sélectionner le groupe (seuls les groupes avec ≥ 3 machines sont affichés)
      - **Storage Group** : Groupe de stockage source
      - **Base Port** : Port UDP (doit être pair, ex: 63100)
-     - **Network Interface** : Interface réseau (ex: eth0)
    - Cliquer sur **Create Multicast Session**
 
-3. **Le nom de la session est généré automatiquement** : `{Snapin} - {Group}`
+3. **Paramètres générés automatiquement** :
+   - **Nom de session** : `{Snapin} - {Group}`
+   - **Nombre de clients** : Calculé d'après le groupe
+   - **Interface réseau** : Utilise l'interface du storage node ou `FOG_MULTICAST_INTERFACE`
 
 **Notes importantes** :
-- ⚠️ Le multicast nécessite **au moins 3 machines** pour être efficace
+- ⚠️ Le multicast nécessite **au moins 3 machines** (≥ 3 hosts)
 - Les groupes avec moins de 3 hosts ne sont pas disponibles dans la liste
 - Tous les hosts du groupe recevront le snapin automatiquement
-- Le nombre de clients est calculé automatiquement d'après le groupe
+- L'interface réseau est automatiquement détectée depuis la configuration FOG
 
 ### Monitoring
 
@@ -162,11 +167,17 @@ Au lieu que chaque client télécharge individuellement le snapin via FTP (unica
 Les paramètres multicast existants sont réutilisés :
 
 - `FOG_MULTICAST_ADDRESS` : Adresse multicast (défaut: 224.0.0.1)
+- `FOG_MULTICAST_INTERFACE` : Interface réseau par défaut (défaut: eth0)
 - `FOG_MULTICAST_DUPLEX` : Mode duplex
 - `FOG_UDPCAST_STARTINGPORT` : Port de départ (défaut: 63100)
 - `FOG_UDPCAST_MAXWAIT` : Timeout maximum en minutes (défaut: 10)
 - `FOG_MULTICAST_MAX_SESSIONS` : Nombre max de sessions simultanées (défaut: 5)
 - `MULTICASTSLEEPTIME` : Intervalle de vérification du service en secondes (défaut: 10)
+
+**Note** : L'interface réseau utilisée pour chaque session est déterminée automatiquement :
+1. Si le storage node a une interface définie, elle est utilisée en priorité
+2. Sinon, utilise `FOG_MULTICAST_INTERFACE`
+3. Par défaut : `eth0`
 
 ## Tables de Base de Données
 
