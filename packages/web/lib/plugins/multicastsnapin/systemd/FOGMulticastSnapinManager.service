@@ -1,0 +1,13 @@
+[Unit]
+Description=FOG Multicast Snapin Manager
+After=network.target mysql.service mariadb.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/env php /opt/fog/service/FOGMulticastSnapinManager/FOGMulticastSnapinManager
+Restart=always
+RestartSec=10
+User=root
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,29 @@
+#!/usr/bin/env php
+<?php
+/**
+ * FOG Multicast Snapin Manager Service
+ *
+ * Service daemon for managing multicast snapin deployment sessions
+ *
+ * @category Plugin
+ * @package  FOGProject
+ * @author   MIST Team
+ * @license  http://opensource.org/licenses/gpl-3.0 GPLv3
+ * @link     https://fogproject.org
+ */
+
+/**
+ * Require the service bootstrap
+ */
+require_once dirname(dirname(__FILE__)) . '/commons/init.php';
+
+/**
+ * Require the plugin service class
+ */
+require_once BASEPATH . '/lib/plugins/multicastsnapin/service/multicastsnapinmanager.class.php';
+
+/**
+ * Start the service
+ */
+$Service = new MulticastSnapinManager();
+$Service->main();
