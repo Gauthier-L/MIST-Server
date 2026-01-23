@@ -39,6 +39,7 @@ class MulticastSnapinSessionManager extends FOGManagerController
             `mssName` VARCHAR(250) NOT NULL,
             `mssBasePort` INTEGER NOT NULL,
             `mssSnapinID` INTEGER NOT NULL,
+            `mssGroupID` INTEGER NOT NULL,
             `mssClients` INTEGER NOT NULL DEFAULT '-1',
             `mssSessClients` INTEGER NOT NULL DEFAULT '0',
             `mssInterface` VARCHAR(15) NOT NULL,
@@ -49,6 +50,7 @@ class MulticastSnapinSessionManager extends FOGManagerController
             `mssPercent` INTEGER NOT NULL DEFAULT '0',
             PRIMARY KEY (`mssID`),
             KEY `mssSnapinID` (`mssSnapinID`),
+            KEY `mssGroupID` (`mssGroupID`),
             KEY `mssState` (`mssState`),
             KEY `mssStorageGroupID` (`mssStorageGroupID`)
         ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8 ROW_FORMAT=DYNAMIC";

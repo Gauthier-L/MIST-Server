@@ -23,7 +23,6 @@ Au lieu que chaque client télécharge individuellement le snapin via FTP (unica
 1. **Classes Modèles**
    - `MulticastSnapinSession` : Représente une session multicast
    - `MulticastSnapinSessionManager` : Gestion CRUD des sessions
-   - `MulticastSnapinSessionAssociation` : Association session ↔ hosts
    - `MulticastSnapinWrapper` : Génération des scripts wrapper clients
 
 2. **Service Daemon**
@@ -49,8 +48,9 @@ Au lieu que chaque client télécharge individuellement le snapin via FTP (unica
 ```
 1. Admin crée session multicast (Web UI)
    ├─> Sélectionne snapin
-   ├─> Sélectionne hosts destinataires
-   ├─> Définit nombre de clients et port
+   ├─> Sélectionne groupe de hosts (> 2 machines)
+   ├─> Nom généré automatiquement : "{Snapin} - {Group}"
+   ├─> Nombre de clients calculé automatiquement
    └─> Session créée avec état "Queued"
 
 2. Service FOGMulticastSnapinManager (daemon)
@@ -58,7 +58,7 @@ Au lieu que chaque client télécharge individuellement le snapin via FTP (unica
    ├─> Lance udp-sender avec le fichier snapin
    └─> Marque session "In Progress"
 
-3. Clients FOG (via wrapper script)
+3. Clients FOG (tous les hosts du groupe)
    ├─> Téléchargent wrapper script via FTP (léger)
    ├─> Installent udp-receiver si nécessaire
    ├─> Rejoignent session multicast
@@ -126,27 +126,28 @@ Au lieu que chaque client télécharge individuellement le snapin via FTP (unica
 
 ### Créer une session multicast
 
-1. Aller dans **Multicast Snapin → Create New Session**
-2. Remplir le formulaire :
-   - **Session Name** : Nom descriptif (ex: "Deploy Office 2024")
-   - **Snapin** : Sélectionner le snapin à déployer
-   - **Storage Group** : Groupe de stockage source
-   - **Number of Clients** : Nombre de machines attendues
-   - **Base Port** : Port UDP (doit être pair, ex: 63100)
-   - **Network Interface** : Interface réseau (ex: eth0)
-3. Cliquer sur **Create Session**
+1. **Créer un groupe de hosts** (si pas déjà fait) :
+   - Aller dans **Group Management**
+   - Créer un groupe contenant **au moins 3 machines**
+   - Ajouter les hosts au groupe
 
-### Assigner des hosts à la session
+2. **Créer la session multicast** :
+   - Aller dans **Multicast Snapin → Create New Session**
+   - Remplir le formulaire :
+     - **Snapin** : Sélectionner le snapin à déployer
+     - **Host Group** : Sélectionner le groupe (seuls les groupes avec > 2 machines sont affichés)
+     - **Storage Group** : Groupe de stockage source
+     - **Base Port** : Port UDP (doit être pair, ex: 63100)
+     - **Network Interface** : Interface réseau (ex: eth0)
+   - Cliquer sur **Create Multicast Session**
 
-Pour l'instant, l'assignation se fait manuellement via la base de données :
+3. **Le nom de la session est généré automatiquement** : `{Snapin} - {Group}`
 
-```sql
-INSERT INTO multicastSnapinSessionsAssoc (mssID, mssaHostID)
-VALUES (1, 123), (1, 124), (1, 125);
--- Où 1 est l'ID de la session et 123, 124, 125 sont les IDs des hosts
-```
-
-**Note** : Une future amélioration permettra l'assignation via l'interface web.
+**Notes importantes** :
+- ⚠️ Le multicast nécessite **au moins 3 machines** pour être efficace
+- Les groupes avec moins de 3 hosts ne sont pas disponibles dans la liste
+- Tous les hosts du groupe recevront le snapin automatiquement
+- Le nombre de clients est calculé automatiquement d'après le groupe
 
 ### Monitoring
 
@@ -176,10 +177,11 @@ Stocke les sessions multicast :
 | Champ | Type | Description |
 |-------|------|-------------|
 | mssID | INT | ID unique |
-| mssName | VARCHAR(250) | Nom de la session |
+| mssName | VARCHAR(250) | Nom de la session (généré auto) |
 | mssBasePort | INT | Port UDP (pair) |
 | mssSnapinID | INT | ID du snapin |
-| mssClients | INT | Nombre de clients attendus |
+| mssGroupID | INT | ID du groupe de hosts |
+| mssClients | INT | Nombre de clients attendus (calculé auto) |
 | mssSessClients | INT | Nombre de clients connectés |
 | mssInterface | VARCHAR(15) | Interface réseau |
 | mssState | INT | État (0=Queued, 1=InProgress, 2=Complete, 3=Cancelled) |
@@ -188,15 +190,7 @@ Stocke les sessions multicast :
 | mssStorageGroupID | INT | ID du groupe de stockage |
 | mssPercent | INT | Progression (0-100) |
 
-### multicastSnapinSessionsAssoc
-
-Association entre sessions et hosts :
-
-| Champ | Type | Description |
-|-------|------|-------------|
-| mssaID | INT | ID unique |
-| mssID | INT | ID de la session |
-| mssaHostID | INT | ID du host |
+**Note** : Les hosts destinataires sont automatiquement déterminés via `mssGroupID` en interrogeant la table `groupAssociation`.
 
 ## Dépannage
 
@@ -228,12 +222,15 @@ sudo chmod +x /opt/fog/service/FOGMulticastSnapinManager/FOGMulticastSnapinManag
 
 ## Évolutions Futures
 
-- [ ] Interface web pour assigner hosts aux sessions
-- [ ] Création automatique de sessions quand N hosts ont le même snapin en attente
+- [x] ~~Interface web pour assigner hosts aux sessions~~ → Implémenté via sélection de groupe
+- [x] ~~Génération automatique du nom de session~~ → Implémenté
+- [x] ~~Validation automatique du nombre minimum de machines~~ → Implémenté (> 2)
+- [ ] Déclenchement automatique quand N hosts d'un groupe ont le même snapin en attente
 - [ ] Support de multiples snapins par session
-- [ ] Dashboard de statistiques
+- [ ] Dashboard de statistiques et historique
 - [ ] Support de la réplication multicast entre storage nodes
 - [ ] Intégration avec le planificateur de tâches FOG
+- [ ] Notification des hosts pour rejoindre automatiquement la session multicast
 
 ## Licence
 

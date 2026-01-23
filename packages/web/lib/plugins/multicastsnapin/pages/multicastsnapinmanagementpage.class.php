@@ -59,6 +59,7 @@ class MulticastSnapinManagementPage extends FOGPage
             '<input type="checkbox" class="toggle-checkbox" />',
             _('Session Name'),
             _('Snapin'),
+            _('Group'),
             _('State'),
             _('Clients'),
             _('Progress'),
@@ -70,6 +71,7 @@ class MulticastSnapinManagementPage extends FOGPage
             '<input type="checkbox" class="toggle-action" name="multicastsnapin[]" value="${id}" />',
             '<a href="?node=${node}&sub=edit&id=${id}">${name}</a>',
             '${snapin_name}',
+            '${group_name}',
             '${state_name}',
             '${clients} / ${sessclients}',
             '${percent}%',
@@ -82,6 +84,7 @@ class MulticastSnapinManagementPage extends FOGPage
                 'class' => 'filter-false',
                 'width' => 16
             ),
+            array(),
             array(),
             array(),
             array(),
@@ -119,6 +122,7 @@ class MulticastSnapinManagementPage extends FOGPage
             }
 
             $Snapin = $Session->getSnapin();
+            $Group = $Session->getGroup();
 
             $this->data[] = array(
                 'id' => $Session->get('id'),
@@ -126,6 +130,9 @@ class MulticastSnapinManagementPage extends FOGPage
                 'name' => $Session->get('name'),
                 'snapin_name' => $Snapin && $Snapin->isValid()
                     ? $Snapin->get('name')
+                    : _('Unknown'),
+                'group_name' => $Group && $Group->isValid()
+                    ? $Group->get('name')
                     : _('Unknown'),
                 'state_name' => $Session->getStateName(),
                 'clients' => $Session->get('clients'),
@@ -137,7 +144,7 @@ class MulticastSnapinManagementPage extends FOGPage
                 ),
             );
 
-            unset($Session, $Snapin);
+            unset($Session, $Snapin, $Group);
         }
 
         self::$HookManager->processEvent(
@@ -180,6 +187,7 @@ class MulticastSnapinManagementPage extends FOGPage
             }
 
             $Snapin = $Session->getSnapin();
+            $Group = $Session->getGroup();
 
             $this->data[] = array(
                 'id' => $Session->get('id'),
@@ -187,6 +195,9 @@ class MulticastSnapinManagementPage extends FOGPage
                 'name' => $Session->get('name'),
                 'snapin_name' => $Snapin && $Snapin->isValid()
                     ? $Snapin->get('name')
+                    : _('Unknown'),
+                'group_name' => $Group && $Group->isValid()
+                    ? $Group->get('name')
                     : _('Unknown'),
                 'state_name' => $Session->getStateName(),
                 'clients' => $Session->get('clients'),
@@ -198,7 +209,7 @@ class MulticastSnapinManagementPage extends FOGPage
                 ),
             );
 
-            unset($Session, $Snapin);
+            unset($Session, $Snapin, $Group);
         }
 
         self::$HookManager->processEvent(
@@ -245,6 +256,28 @@ class MulticastSnapinManagementPage extends FOGPage
             $snapinOptions[$Snapin->get('id')] = $Snapin->get('name');
         }
 
+        // Get groups for dropdown (only groups with > 2 hosts)
+        $Groups = self::getClass('GroupManager')->find();
+        $groupOptions = array();
+        foreach ((array) $Groups as $Group) {
+            if (!$Group->isValid()) {
+                continue;
+            }
+
+            // Get host count for this group
+            $hostCount = self::getClass('GroupAssociationManager')
+                ->count(array('groupID' => $Group->get('id')));
+
+            // Only include groups with more than 2 hosts
+            if ($hostCount > 2) {
+                $groupOptions[$Group->get('id')] = sprintf(
+                    '%s (%d hosts)',
+                    $Group->get('name'),
+                    $hostCount
+                );
+            }
+        }
+
         // Get storage groups for dropdown
         $StorageGroups = self::getClass('StorageGroupManager')->find();
         $storageGroupOptions = array();
@@ -260,20 +293,14 @@ class MulticastSnapinManagementPage extends FOGPage
             ->getNextAvailablePort();
 
         $fields = array(
-            _('Session Name') => self::getClass('Process')
-                ->input('name')
-                ->placeholder(_('Enter session name'))
-                ->required('required'),
             _('Snapin') => self::getClass('Process')
                 ->select('snapinID', $snapinOptions)
                 ->required('required'),
+            _('Host Group') => self::getClass('Process')
+                ->select('groupID', $groupOptions)
+                ->required('required'),
             _('Storage Group') => self::getClass('Process')
                 ->select('storagegroupID', $storageGroupOptions)
-                ->required('required'),
-            _('Number of Clients') => self::getClass('Process')
-                ->input('clients', '1')
-                ->type('number')
-                ->min('1')
                 ->required('required'),
             _('Base Port') => self::getClass('Process')
                 ->input('port', $nextPort)
@@ -287,9 +314,17 @@ class MulticastSnapinManagementPage extends FOGPage
                 ->input('interface', 'eth0')
                 ->placeholder(_('e.g., eth0, ens160')),
             '&nbsp;' => self::getClass('Process')
-                ->input('add', _('Create Session'))
+                ->input('add', _('Create Multicast Session'))
                 ->type('submit'),
         );
+
+        // Add info message if no groups available
+        if (empty($groupOptions)) {
+            printf(
+                '<div class="info-box">%s</div>',
+                _('No groups with more than 2 hosts available. Please create a group with at least 3 hosts to use multicast deployment.')
+            );
+        }
 
         foreach ($fields as $field => $input) {
             $this->data[] = array(
@@ -328,29 +363,56 @@ class MulticastSnapinManagementPage extends FOGPage
 
         try {
             // Validate inputs
-            $name = trim($_POST['name'] ?? '');
             $snapinID = (int) ($_POST['snapinID'] ?? 0);
+            $groupID = (int) ($_POST['groupID'] ?? 0);
             $storagegroupID = (int) ($_POST['storagegroupID'] ?? 0);
-            $clients = (int) ($_POST['clients'] ?? 1);
             $port = (int) ($_POST['port'] ?? 0);
             $interface = trim($_POST['interface'] ?? 'eth0');
 
-            if (empty($name)) {
-                throw new Exception(_('Session name is required'));
-            }
-
+            // Validate snapin
             if ($snapinID < 1) {
                 throw new Exception(_('Please select a snapin'));
             }
 
+            $Snapin = self::getClass('Snapin', $snapinID);
+            if (!$Snapin->isValid()) {
+                throw new Exception(_('Invalid snapin selected'));
+            }
+
+            // Validate group
+            if ($groupID < 1) {
+                throw new Exception(_('Please select a host group'));
+            }
+
+            $Group = self::getClass('Group', $groupID);
+            if (!$Group->isValid()) {
+                throw new Exception(_('Invalid group selected'));
+            }
+
+            // Count hosts in group
+            $hostCount = self::getClass('GroupAssociationManager')
+                ->count(array('groupID' => $groupID));
+
+            if ($hostCount < 3) {
+                throw new Exception(
+                    sprintf(
+                        _('Group must have at least 3 hosts for multicast deployment. This group has %d host(s).'),
+                        $hostCount
+                    )
+                );
+            }
+
+            // Validate storage group
             if ($storagegroupID < 1) {
                 throw new Exception(_('Please select a storage group'));
             }
 
-            if ($clients < 1) {
-                throw new Exception(_('Client count must be at least 1'));
+            $StorageGroup = self::getClass('StorageGroup', $storagegroupID);
+            if (!$StorageGroup->isValid()) {
+                throw new Exception(_('Invalid storage group selected'));
             }
 
+            // Validate port
             if ($port % 2 !== 0) {
                 throw new Exception(_('Port must be an even number'));
             }
@@ -359,24 +421,20 @@ class MulticastSnapinManagementPage extends FOGPage
                 throw new Exception(_('Port must be between 24576 and 65534'));
             }
 
-            // Validate snapin exists
-            $Snapin = self::getClass('Snapin', $snapinID);
-            if (!$Snapin->isValid()) {
-                throw new Exception(_('Invalid snapin selected'));
-            }
-
-            // Validate storage group exists
-            $StorageGroup = self::getClass('StorageGroup', $storagegroupID);
-            if (!$StorageGroup->isValid()) {
-                throw new Exception(_('Invalid storage group selected'));
-            }
+            // Generate session name automatically: "SnapinName - GroupName"
+            $sessionName = sprintf(
+                '%s - %s',
+                $Snapin->get('name'),
+                $Group->get('name')
+            );
 
             // Create session
             $Session = self::getClass('MulticastSnapinSession')
-                ->set('name', $name)
+                ->set('name', $sessionName)
                 ->set('snapinID', $snapinID)
+                ->set('groupID', $groupID)
                 ->set('storagegroupID', $storagegroupID)
-                ->set('clients', $clients)
+                ->set('clients', $hostCount)
                 ->set('sessclients', 0)
                 ->set('port', $port)
                 ->set('interface', $interface)
@@ -395,8 +453,9 @@ class MulticastSnapinManagementPage extends FOGPage
 
             $this->setMessage(
                 sprintf(
-                    _('Session %s created successfully'),
-                    $name
+                    _('Multicast session "%s" created successfully for %d hosts'),
+                    $sessionName,
+                    $hostCount
                 )
             );
 
@@ -459,6 +518,7 @@ class MulticastSnapinManagementPage extends FOGPage
         );
 
         $Snapin = $Session->getSnapin();
+        $Group = $Session->getGroup();
         $StorageGroup = $Session->getStorageGroup();
         $StorageNode = $Session->getStorageNode();
 
@@ -467,6 +527,9 @@ class MulticastSnapinManagementPage extends FOGPage
             _('Session Name') => $Session->get('name'),
             _('Snapin') => $Snapin && $Snapin->isValid()
                 ? $Snapin->get('name')
+                : _('Unknown'),
+            _('Host Group') => $Group && $Group->isValid()
+                ? $Group->get('name')
                 : _('Unknown'),
             _('Storage Group') => $StorageGroup && $StorageGroup->isValid()
                 ? $StorageGroup->get('name')

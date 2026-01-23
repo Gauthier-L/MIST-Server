@@ -39,6 +39,7 @@ class MulticastSnapinSession extends FOGController
         'name' => 'mssName',
         'port' => 'mssBasePort',
         'snapinID' => 'mssSnapinID',
+        'groupID' => 'mssGroupID',
         'clients' => 'mssClients',
         'sessclients' => 'mssSessClients',
         'interface' => 'mssInterface',
@@ -55,8 +56,8 @@ class MulticastSnapinSession extends FOGController
      * @var array
      */
     protected $databaseFieldsRequired = array(
-        'name',
         'snapinID',
+        'groupID',
         'clients',
     );
 
@@ -67,6 +68,7 @@ class MulticastSnapinSession extends FOGController
      */
     protected $additionalFields = array(
         'snapin',
+        'group',
         'storagegroup',
         'storagenode',
         'hosts',
@@ -83,6 +85,11 @@ class MulticastSnapinSession extends FOGController
             'snapinID',
             'snapin',
         ),
+        'Group' => array(
+            'id',
+            'groupID',
+            'group',
+        ),
         'StorageGroup' => array(
             'id',
             'storagegroupID',
@@ -98,6 +105,16 @@ class MulticastSnapinSession extends FOGController
     public function getSnapin()
     {
         return $this->get('snapin');
+    }
+
+    /**
+     * Get the group object
+     *
+     * @return object The group object
+     */
+    public function getGroup()
+    {
+        return $this->get('group');
     }
 
     /**
@@ -126,17 +143,33 @@ class MulticastSnapinSession extends FOGController
     }
 
     /**
-     * Get associated hosts
+     * Get associated hosts (from group)
      *
-     * @return array Array of host objects
+     * @return array Array of host IDs
      */
     public function getHosts()
     {
+        $Group = $this->getGroup();
+        if (!$Group || !$Group->isValid()) {
+            return array();
+        }
+
         return self::getSubObjectIDs(
-            'MulticastSnapinSessionAssociation',
-            array('msID' => $this->get('id')),
+            'GroupAssociation',
+            array('groupID' => $Group->get('id')),
             'hostID'
         );
+    }
+
+    /**
+     * Get host count
+     *
+     * @return int Number of hosts in group
+     */
+    public function getHostCount()
+    {
+        $hostIDs = $this->getHosts();
+        return count($hostIDs);
     }
 
     /**
