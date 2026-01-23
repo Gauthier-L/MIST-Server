@@ -6,7 +6,7 @@
  *
  * @category Plugin
  * @package  FOGProject
- * @author   MIST Team
+ * @author   Gauthier-L, University of Lille, Campus-Gare RBX
  * @license  http://opensource.org/licenses/gpl-3.0 GPLv3
  * @link     https://fogproject.org
  */
@@ -16,7 +16,7 @@
  *
  * @category Plugin
  * @package  FOGProject
- * @author   MIST Team
+ * @author   Gauthier-L, University of Lille, Campus-Gare RBX
  * @license  http://opensource.org/licenses/gpl-3.0 GPLv3
  * @link     https://fogproject.org
  */
