@@ -1,4 +1,4 @@
-# Multicast Snapin Plugin for MIST (FOG)
+# Multicast Snapin Plugin for FOG
 
 ## Description
 
@@ -18,7 +18,7 @@ Au lieu que chaque client télécharge individuellement le snapin via FTP (unica
 - ✅ Configuration automatique de l'interface réseau
 - ✅ **Installation automatique** du service lors de l'activation du plugin
 - ✅ Scripts wrapper automatiques pour clients Windows et Linux
-- ✅ Compatible avec l'infrastructure multicast existante de MIST
+- ✅ Compatible avec l'infrastructure multicast existante de FOG
 - ✅ Cohabitation avec les déploiements snapin unicast traditionnels
 - ✅ Monitoring en temps réel des sessions actives
 
@@ -88,16 +88,16 @@ Au lieu que chaque client télécharge individuellement le snapin via FTP (unica
 
 ### Prérequis
 
-- MIST Server (FOG fork) fonctionnel
+- FOG Server (FOG fork) fonctionnel
 - udpcast installé (`/usr/local/sbin/udp-sender`)
 - PHP 7.0+
 - **Accès root** pour l'installation automatique du service systemd
 
 ### Installation Plug&Play
 
-1. **Le plugin est déjà dans l'arborescence MIST** (`packages/web/lib/plugins/multicastsnapin/`)
+1. **Le plugin est déjà dans l'arborescence FOG** (`packages/web/lib/plugins/multicastsnapin/`)
 
-2. **Activer le plugin via l'interface web MIST** :
+2. **Activer le plugin via l'interface web FOG** :
    - Aller dans **Plugin Management**
    - Trouver **Multicast Snapin**
    - Cliquer sur **Activate**
@@ -156,7 +156,7 @@ Au lieu que chaque client télécharge individuellement le snapin via FTP (unica
 
 ## Configuration
 
-### Paramètres MIST (globalSettings)
+### Paramètres FOG (globalSettings)
 
 Les paramètres multicast existants sont réutilisés :
 
@@ -346,11 +346,11 @@ GPL v3
 
 ## Auteurs
 
-MIST Team - Plugin développé pour optimiser les déploiements de snapins sur grands parcs.
+Gauthier-L, University of Lille, Campus-Gare RBX - Plugin développé pour optimiser les déploiements de snapins sur grands parcs.
 
 ## Support
 
 Pour toute question ou problème :
 - Consulter les logs : `journalctl -u FOGMulticastSnapinManager -f`
 - Vérifier la documentation FOG sur le multicast
-- Ouvrir une issue sur le dépôt MIST
+- Ouvrir une issue sur le dépôt FOG
