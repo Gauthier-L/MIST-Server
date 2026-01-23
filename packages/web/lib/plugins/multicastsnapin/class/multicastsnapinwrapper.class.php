@@ -6,7 +6,7 @@
  *
  * @category Plugin
  * @package  FOGProject
- * @author   MIST Team
+ * @author   Gauthier-L, University of Lille, Campus-Gare RBX
  * @license  http://opensource.org/licenses/gpl-3.0 GPLv3
  * @link     https://fogproject.org
  */
@@ -23,7 +23,7 @@
  *
  * @category Plugin
  * @package  FOGProject
- * @author   MIST Team
+ * @author   Gauthier-L, University of Lille, Campus-Gare RBX
  * @license  http://opensource.org/licenses/gpl-3.0 GPLv3
  * @link     https://fogproject.org
  */
@@ -52,7 +52,7 @@ class MulticastSnapinWrapper extends FOGBase
 
         $script = <<<'POWERSHELL'
 # FOG Multicast Snapin Wrapper - Windows
-# Generated automatically by MIST MulticastSnapin plugin
+# Generated automatically by FOG MulticastSnapin plugin
 
 $ErrorActionPreference = "Stop"
 $LogFile = "$env:TEMP\fog-multicast-snapin.log"
@@ -241,7 +241,7 @@ POWERSHELL;
         $script = <<<'BASH'
 #!/bin/bash
 # FOG Multicast Snapin Wrapper - Linux
-# Generated automatically by MIST MulticastSnapin plugin
+# Generated automatically by FOG MulticastSnapin plugin
 
 set -e
 
