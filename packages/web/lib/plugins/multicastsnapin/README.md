@@ -9,11 +9,14 @@ Au lieu que chaque client télécharge individuellement le snapin via FTP (unica
 ## Fonctionnalités
 
 - ✅ Déploiement multicast de snapins vers plusieurs hosts (≥ 3 machines)
-- ✅ Interface web simplifiée de gestion des sessions multicast
+- ✅ **Allocation automatique des ports** (évite collisions avec multicast images)
+- ✅ **Service robuste** basé sur FOGMulticastManager (patterns éprouvés)
+- ✅ **Gestion anti-zombies** des processus (killAll récursif)
+- ✅ Interface web simplifiée de gestion des sessions
 - ✅ Assignation automatique par groupes de hosts
 - ✅ Génération automatique des noms de session
 - ✅ Configuration automatique de l'interface réseau
-- ✅ Service daemon automatique (FOGMulticastSnapinManager)
+- ✅ **Installation automatique** du service lors de l'activation du plugin
 - ✅ Scripts wrapper automatiques pour clients Windows et Linux
 - ✅ Compatible avec l'infrastructure multicast existante de MIST
 - ✅ Cohabitation avec les déploiements snapin unicast traditionnels
@@ -23,22 +26,18 @@ Au lieu que chaque client télécharge individuellement le snapin via FTP (unica
 
 ### Composants
 
-1. **Classes Modèles**
+1. **Service Core** (dans `/packages/web/lib/service/`)
+   - `MulticastSnapinManager` : Service daemon (même pattern que FOGMulticastManager)
+   - `MulticastSnapinTask` : Gestion des tâches multicast individuelles
+
+2. **Classes Modèles** (dans `/packages/web/lib/plugins/multicastsnapin/class/`)
    - `MulticastSnapinSession` : Représente une session multicast
-   - `MulticastSnapinSessionManager` : Gestion CRUD des sessions
+   - `MulticastSnapinSessionManager` : Gestion CRUD et installation automatique
    - `MulticastSnapinWrapper` : Génération des scripts wrapper clients
 
-2. **Service Daemon**
-   - `FOGMulticastSnapinManager` : Service systemd qui gère les sessions
-   - Lance udp-sender pour chaque session
-   - Monitore les sessions actives
-   - Gère les timeouts et erreurs
-
 3. **Interface Web**
-   - Page de création de sessions multicast
-   - Liste des sessions actives/complétées
-   - Monitoring en temps réel
-   - Annulation de sessions
+   - Page de gestion des sessions multicast
+   - Hooks d'intégration (menu, API)
 
 4. **Client-side**
    - Scripts wrapper générés automatiquement (PowerShell/Bash)
@@ -51,17 +50,26 @@ Au lieu que chaque client télécharge individuellement le snapin via FTP (unica
 ```
 1. Admin crée session multicast (Web UI)
    ├─> Sélectionne snapin
-   ├─> Sélectionne groupe de hosts (> 2 machines)
+   ├─> Sélectionne groupe de hosts (≥ 3 machines)
    ├─> Nom généré automatiquement : "{Snapin} - {Group}"
+   ├─> Port alloué automatiquement (évite collisions)
    ├─> Nombre de clients calculé automatiquement
    └─> Session créée avec état "Queued"
 
 2. Service FOGMulticastSnapinManager (daemon)
-   ├─> Détecte sessions en attente
-   ├─> Lance udp-sender avec le fichier snapin
+   ├─> Boucle toutes les 10s (scan sessions Queued/Progress)
+   ├─> Valide: fichier snapin, port pair, >= 3 clients
+   ├─> Lance udp-sender via proc_open()
+   ├─> Stocke procRef pour monitoring
    └─> Marque session "In Progress"
 
-3. Clients FOG (tous les hosts du groupe)
+3. Monitoring continu
+   ├─> Vérifie proc_get_status($procRef)
+   ├─> Si running: updateStats() (pourcentage)
+   ├─> Si terminé ou timeout: complete() ou cancel()
+   └─> killTask() avec killAll() récursif (anti-zombies)
+
+4. Clients FOG (tous les hosts du groupe)
    ├─> Téléchargent wrapper script via FTP (léger)
    ├─> Installent udp-receiver si nécessaire
    ├─> Rejoignent session multicast
@@ -69,10 +77,11 @@ Au lieu que chaque client télécharge individuellement le snapin via FTP (unica
    ├─> Exécutent le snapin
    └─> Reportent résultats au serveur
 
-4. Fin de session
+5. Fin de session
    ├─> Tous clients ont reçu le snapin OU timeout
-   ├─> Service arrête udp-sender
-   └─> Session marquée "Complete"
+   ├─> Service arrête udp-sender (SIGTERM + killAll)
+   ├─> Session marquée "Complete" (stateID=4)
+   └─> Nettoyage des logs et processus
 ```
 
 ## Installation
@@ -82,48 +91,30 @@ Au lieu que chaque client télécharge individuellement le snapin via FTP (unica
 - MIST Server (FOG fork) fonctionnel
 - udpcast installé (`/usr/local/sbin/udp-sender`)
 - PHP 7.0+
-- Accès root pour installation du service systemd
+- **Accès root** pour l'installation automatique du service systemd
 
-### Étapes d'installation
+### Installation Plug&Play
 
 1. **Le plugin est déjà dans l'arborescence MIST** (`packages/web/lib/plugins/multicastsnapin/`)
 
 2. **Activer le plugin via l'interface web MIST** :
-   ```
-   Plugin Management → Multicast Snapin → Activate
-   ```
+   - Aller dans **Plugin Management**
+   - Trouver **Multicast Snapin**
+   - Cliquer sur **Activate**
 
-3. **Installer le service systemd** :
+3. **Le service s'installe automatiquement** :
+   - ✅ Création de la table `multicastSnapinSessions`
+   - ✅ Copie de l'exécutable du service dans `/opt/fog/service/FOGMulticastSnapinManager/`
+   - ✅ Installation du fichier systemd dans `/lib/systemd/system/`
+   - ✅ Activation et démarrage automatique via `systemctl`
+
+4. **Vérifier le service** :
    ```bash
-   # Copier le service systemd
-   sudo cp packages/web/lib/plugins/multicastsnapin/systemd/FOGMulticastSnapinManager.service \
-       /lib/systemd/system/
-
-   # Créer le répertoire de service
-   sudo mkdir -p /opt/fog/service/FOGMulticastSnapinManager
-
-   # Copier l'exécutable du service
-   sudo cp packages/service/FOGMulticastSnapinManager/FOGMulticastSnapinManager \
-       /opt/fog/service/FOGMulticastSnapinManager/
-
-   # Rendre exécutable
-   sudo chmod +x /opt/fog/service/FOGMulticastSnapinManager/FOGMulticastSnapinManager
-
-   # Recharger systemd
-   sudo systemctl daemon-reload
-
-   # Activer et démarrer le service
-   sudo systemctl enable FOGMulticastSnapinManager
-   sudo systemctl start FOGMulticastSnapinManager
-
-   # Vérifier le statut
    sudo systemctl status FOGMulticastSnapinManager
-   ```
-
-4. **Vérifier les logs** :
-   ```bash
    sudo journalctl -u FOGMulticastSnapinManager -f
    ```
+
+> **Note** : L'installation automatique nécessite que le serveur web tourne en tant que root ou avec `sudo`. Si l'installation échoue, vérifiez les logs : `tail -f /var/log/apache2/error.log` ou `/var/log/httpd/error_log`.
 
 ## Utilisation
 
@@ -140,25 +131,28 @@ Au lieu que chaque client télécharge individuellement le snapin via FTP (unica
      - **Snapin** : Sélectionner le snapin à déployer
      - **Host Group** : Sélectionner le groupe (seuls les groupes avec ≥ 3 machines sont affichés)
      - **Storage Group** : Groupe de stockage source
-     - **Base Port** : Port UDP (doit être pair, ex: 63100)
    - Cliquer sur **Create Multicast Session**
 
 3. **Paramètres générés automatiquement** :
    - **Nom de session** : `{Snapin} - {Group}`
    - **Nombre de clients** : Calculé d'après le groupe
+   - **Port UDP** : Alloué automatiquement (évite collisions avec multicast images)
    - **Interface réseau** : Utilise l'interface du storage node ou `FOG_MULTICAST_INTERFACE`
 
 **Notes importantes** :
 - ⚠️ Le multicast nécessite **au moins 3 machines** (≥ 3 hosts)
 - Les groupes avec moins de 3 hosts ne sont pas disponibles dans la liste
 - Tous les hosts du groupe recevront le snapin automatiquement
-- L'interface réseau est automatiquement détectée depuis la configuration FOG
+- Le port est alloué automatiquement sur la plage `FOG_UDPCAST_STARTINGPORT` à 65534
+- Aucune collision possible entre sessions snapin et sessions images multicast
 
 ### Monitoring
 
 - **Active Sessions** : Voir les sessions en cours
 - **Session Details** : Voir progression, clients connectés, etc.
 - **Cancel Session** : Annuler une session en cours si nécessaire
+- **Logs** : `journalctl -u FOGMulticastSnapinManager -f`
+- **Logs par session** : `/opt/fog/log/multicast-snapin-{ID}.log`
 
 ## Configuration
 
@@ -173,11 +167,31 @@ Les paramètres multicast existants sont réutilisés :
 - `FOG_UDPCAST_MAXWAIT` : Timeout maximum en minutes (défaut: 10)
 - `FOG_MULTICAST_MAX_SESSIONS` : Nombre max de sessions simultanées (défaut: 5)
 - `MULTICASTSLEEPTIME` : Intervalle de vérification du service en secondes (défaut: 10)
+- `MULTICASTGLOBALENABLED` : Activer/désactiver multicast globalement
 
 **Note** : L'interface réseau utilisée pour chaque session est déterminée automatiquement :
 1. Si le storage node a une interface définie, elle est utilisée en priorité
 2. Sinon, utilise `FOG_MULTICAST_INTERFACE`
 3. Par défaut : `eth0`
+
+### Allocation Automatique des Ports
+
+Le système alloue automatiquement les ports pour éviter les collisions :
+
+1. **Récupération des ports utilisés** :
+   - Sessions snapin multicast actives
+   - Sessions images multicast actives
+
+2. **Algorithme d'allocation** :
+   - Démarre à `FOG_UDPCAST_STARTINGPORT` (défaut 63100)
+   - Incrémente par 2 (ports pairs uniquement)
+   - Évite tous les ports déjà utilisés
+   - Wrap-around à 24576 si > 65534
+
+3. **Calcul de l'adresse multicast** (même que images) :
+   ```php
+   $address = base_address + ((port / 2 + 1) % max_sessions)
+   ```
 
 ## Tables de Base de Données
 
@@ -189,13 +203,13 @@ Stocke les sessions multicast :
 |-------|------|-------------|
 | mssID | INT | ID unique |
 | mssName | VARCHAR(250) | Nom de la session (généré auto) |
-| mssBasePort | INT | Port UDP (pair) |
+| mssBasePort | INT | Port UDP (pair, alloué auto) |
 | mssSnapinID | INT | ID du snapin |
 | mssGroupID | INT | ID du groupe de hosts |
 | mssClients | INT | Nombre de clients attendus (calculé auto) |
 | mssSessClients | INT | Nombre de clients connectés |
 | mssInterface | VARCHAR(15) | Interface réseau |
-| mssState | INT | État (0=Queued, 1=InProgress, 2=Complete, 3=Cancelled) |
+| mssState | INT | État (0=Queued, 1=Checked In, 3=InProgress, 4=Complete, 5=Cancelled) |
 | mssStartDateTime | TIMESTAMP | Date/heure de démarrage |
 | mssCompleteDateTime | TIMESTAMP | Date/heure de fin |
 | mssStorageGroupID | INT | ID du groupe de stockage |
@@ -216,6 +230,9 @@ ls -l /usr/local/sbin/udp-sender
 
 # Vérifier les permissions
 sudo chmod +x /opt/fog/service/FOGMulticastSnapinManager/FOGMulticastSnapinManager
+
+# Redémarrer le service
+sudo systemctl restart FOGMulticastSnapinManager
 ```
 
 ### Les sessions restent en "Queued"
@@ -223,6 +240,8 @@ sudo chmod +x /opt/fog/service/FOGMulticastSnapinManager/FOGMulticastSnapinManag
 - Vérifier que le service tourne : `systemctl status FOGMulticastSnapinManager`
 - Vérifier que le storage node est master du groupe
 - Vérifier les logs : `/opt/fog/log/multicast-snapin-*.log`
+- Vérifier que `MULTICASTGLOBALENABLED` est activé
+- Vérifier que le fichier snapin existe sur le storage node
 
 ### Les clients ne reçoivent pas le snapin
 
@@ -231,11 +250,89 @@ sudo chmod +x /opt/fog/service/FOGMulticastSnapinManager/FOGMulticastSnapinManag
 - Vérifier que le port n'est pas bloqué par un firewall
 - Vérifier les logs wrapper sur le client : `%TEMP%\fog-multicast-snapin.log` (Windows) ou `/tmp/fog-multicast-snapin.log` (Linux)
 
+### Processus zombies
+
+**Ce problème ne devrait JAMAIS se produire** grâce à `killAll()` récursif :
+```php
+// Le service tue tous les processus enfants récursivement
+function killAll($pid, $sig) {
+    exec("ps -ef|awk '\$3 == '$pid' {print \$2}'", $output);
+    foreach ($output as $childPid) {
+        killAll($childPid, $sig);  // Récursif
+    }
+    posix_kill($pid, $sig);
+}
+```
+
+Si des zombies apparaissent quand même :
+```bash
+# Identifier les zombies
+ps aux | grep 'Z'
+
+# Redémarrer le service
+sudo systemctl restart FOGMulticastSnapinManager
+```
+
+## Architecture Technique
+
+### Pattern FOGMulticastManager
+
+Le service suit exactement le même pattern que `FOGMulticastManager` :
+
+```php
+while (true) {
+    // 1. Sleep timer avec usleep(100000)
+    // 2. waitDbReady()
+    // 3. Récupérer tâches (Queued/Progress)
+    // 4. Pour chaque tâche:
+    foreach ($tasks as $task) {
+        if (!$existing) {
+            // Valider et lancer
+            $task->startTask();  // proc_open()
+            $KnownTasks[] = $task;
+        } else {
+            // Monitorer
+            if ($task->isRunning($procRef)) {
+                $task->updateStats();
+            } else {
+                $task->complete() or cancel();
+                $task->killTask();  // killAll() récursif
+            }
+        }
+    }
+}
+```
+
+### Gestion des Processus
+
+```php
+// Lancement avec descripteurs
+$descriptor = [
+    0 => ['pipe', 'r'],                    // stdin
+    1 => ['file', $logfile, 'a'],          // stdout
+    2 => ['file', $servicelog, 'a']        // stderr
+];
+$procRef = proc_open($cmd, $descriptor, $pipes);
+
+// Monitoring
+$status = proc_get_status($procRef);
+$isRunning = $status['running'];
+$pid = $status['pid'];
+
+// Arrêt propre (anti-zombies)
+killAll($pid, SIGTERM);  // Tue tous les enfants récursivement
+proc_terminate($procRef, SIGTERM);
+proc_close($procRef);
+```
+
 ## Évolutions Futures
 
 - [x] ~~Interface web pour assigner hosts aux sessions~~ → Implémenté via sélection de groupe
 - [x] ~~Génération automatique du nom de session~~ → Implémenté
-- [x] ~~Validation automatique du nombre minimum de machines~~ → Implémenté (> 2)
+- [x] ~~Validation automatique du nombre minimum de machines~~ → Implémenté (≥ 3)
+- [x] ~~Allocation automatique des ports~~ → Implémenté avec évitement collisions
+- [x] ~~Service robuste anti-zombies~~ → Implémenté (pattern FOGMulticastManager)
+- [x] ~~Installation automatique~~ → Implémenté (Option 1)
 - [ ] Déclenchement automatique quand N hosts d'un groupe ont le même snapin en attente
 - [ ] Support de multiples snapins par session
 - [ ] Dashboard de statistiques et historique
@@ -250,3 +347,10 @@ GPL v3
 ## Auteurs
 
 MIST Team - Plugin développé pour optimiser les déploiements de snapins sur grands parcs.
+
+## Support
+
+Pour toute question ou problème :
+- Consulter les logs : `journalctl -u FOGMulticastSnapinManager -f`
+- Vérifier la documentation FOG sur le multicast
+- Ouvrir une issue sur le dépôt MIST

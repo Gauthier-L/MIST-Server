@@ -288,10 +288,6 @@ class MulticastSnapinManagementPage extends FOGPage
             $storageGroupOptions[$StorageGroup->get('id')] = $StorageGroup->get('name');
         }
 
-        // Get next available port
-        $nextPort = self::getClass('MulticastSnapinSessionManager')
-            ->getNextAvailablePort();
-
         $fields = array(
             _('Snapin') => self::getClass('Process')
                 ->select('snapinID', $snapinOptions)
@@ -302,17 +298,16 @@ class MulticastSnapinManagementPage extends FOGPage
             _('Storage Group') => self::getClass('Process')
                 ->select('storagegroupID', $storageGroupOptions)
                 ->required('required'),
-            _('Base Port') => self::getClass('Process')
-                ->input('port', $nextPort)
-                ->type('number')
-                ->min('24576')
-                ->max('65534')
-                ->step('2')
-                ->required('required')
-                ->placeholder(_('Must be an even number')),
             '&nbsp;' => self::getClass('Process')
                 ->input('add', _('Create Multicast Session'))
                 ->type('submit'),
+        );
+
+        // Info message about automatic port allocation
+        printf(
+            '<div class="info-box"><strong>%s:</strong> %s</div>',
+            _('Note'),
+            _('Port will be allocated automatically to avoid conflicts with image multicast sessions')
         );
 
         // Add info message if no groups available
@@ -363,7 +358,6 @@ class MulticastSnapinManagementPage extends FOGPage
             $snapinID = (int) ($_POST['snapinID'] ?? 0);
             $groupID = (int) ($_POST['groupID'] ?? 0);
             $storagegroupID = (int) ($_POST['storagegroupID'] ?? 0);
-            $port = (int) ($_POST['port'] ?? 0);
 
             // Validate snapin
             if ($snapinID < 1) {
@@ -408,14 +402,9 @@ class MulticastSnapinManagementPage extends FOGPage
                 throw new Exception(_('Invalid storage group selected'));
             }
 
-            // Validate port
-            if ($port % 2 !== 0) {
-                throw new Exception(_('Port must be an even number'));
-            }
-
-            if ($port < 24576 || $port > 65534) {
-                throw new Exception(_('Port must be between 24576 and 65534'));
-            }
+            // Allocate port automatically (avoids collisions with image multicast)
+            $port = self::getClass('MulticastSnapinSessionManager')
+                ->getNextAvailablePort();
 
             // Generate session name automatically: "SnapinName - GroupName"
             $sessionName = sprintf(

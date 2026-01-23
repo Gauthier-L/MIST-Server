@@ -59,17 +59,10 @@ class MulticastSnapinSessionManager extends FOGManagerController
             return false;
         }
 
-        // Create multicastSnapinSessionsAssoc table
-        $sql = "CREATE TABLE IF NOT EXISTS `multicastSnapinSessionsAssoc` (
-            `mssaID` INTEGER NOT NULL AUTO_INCREMENT,
-            `mssID` INTEGER NOT NULL,
-            `mssaHostID` INTEGER NOT NULL,
-            PRIMARY KEY (`mssaID`),
-            KEY `mssID` (`mssID`),
-            KEY `mssaHostID` (`mssaHostID`)
-        ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8 ROW_FORMAT=DYNAMIC";
+        // Install service automatically (Option 1)
+        $this->_installService();
 
-        return self::$DB->query($sql);
+        return true;
     }
 
     /**
@@ -164,7 +157,7 @@ class MulticastSnapinSessionManager extends FOGManagerController
     }
 
     /**
-     * Get next available port for multicast
+     * Get next available port for multicast (avoids collisions with image multicast)
      *
      * @return int Next available even port number
      */
@@ -177,25 +170,97 @@ class MulticastSnapinSessionManager extends FOGManagerController
             $basePort++;
         }
 
-        // Get all active session ports
-        $activeSessions = $this->getActiveSessions();
-        $usedPorts = array();
+        // Get all used ports from snapin sessions
+        $activeSnapinSessions = $this->getActiveSessions();
+        $usedPorts = [];
 
-        foreach ($activeSessions as $session) {
-            $usedPorts[] = $session->get('port');
+        foreach ($activeSnapinSessions as $session) {
+            $usedPorts[] = (int) $session->get('port');
+        }
+
+        // IMPORTANT: Also get ports from image multicast sessions to avoid collision
+        try {
+            $activeImageSessions = self::getClass('MulticastSessionManager')
+                ->getActiveSessions();
+            foreach ($activeImageSessions as $session) {
+                $usedPorts[] = (int) $session->get('port');
+            }
+        } catch (Exception $e) {
+            // MulticastSessionManager might not exist, ignore
         }
 
         // Find next available port
         $candidatePort = $basePort;
-        while (in_array($candidatePort, $usedPorts)) {
+        $attempts = 0;
+        $maxAttempts = 1000; // Prevent infinite loop
+
+        while (in_array($candidatePort, $usedPorts) && $attempts < $maxAttempts) {
             $candidatePort += 2; // Increment by 2 to keep even
 
             // Wrap around if we exceed max port
             if ($candidatePort > 65534) {
                 $candidatePort = 24576; // Min dynamic port (even)
             }
+
+            $attempts++;
         }
 
         return $candidatePort;
+    }
+
+    /**
+     * Install service automatically (Option 1)
+     * Called when plugin is activated
+     *
+     * @return void
+     */
+    private function _installService()
+    {
+        // Check if running as root
+        if (posix_getuid() !== 0) {
+            error_log('MulticastSnapin: Cannot install service - not running as root');
+            return;
+        }
+
+        try {
+            $pluginPath = BASEPATH . '/lib/plugins/multicastsnapin';
+            $systemdSource = $pluginPath . '/systemd/FOGMulticastSnapinManager.service';
+            $systemdTarget = '/lib/systemd/system/FOGMulticastSnapinManager.service';
+
+            // Create service directory
+            $serviceDir = '/opt/fog/service/FOGMulticastSnapinManager';
+            if (!is_dir($serviceDir)) {
+                mkdir($serviceDir, 0755, true);
+            }
+
+            // Copy service executable
+            $execSource = BASEPATH . '/../service/FOGMulticastSnapinManager/FOGMulticastSnapinManager';
+            $execTarget = $serviceDir . '/FOGMulticastSnapinManager';
+
+            if (file_exists($execSource)) {
+                copy($execSource, $execTarget);
+                chmod($execTarget, 0755);
+            }
+
+            // Copy systemd unit file
+            if (file_exists($systemdSource)) {
+                copy($systemdSource, $systemdTarget);
+
+                // Reload systemd
+                exec('systemctl daemon-reload 2>&1', $output, $ret);
+
+                if ($ret === 0) {
+                    // Enable and start service
+                    exec('systemctl enable FOGMulticastSnapinManager 2>&1', $output, $ret);
+                    exec('systemctl start FOGMulticastSnapinManager 2>&1', $output, $ret);
+
+                    error_log('MulticastSnapin: Service installed and started successfully');
+                } else {
+                    error_log('MulticastSnapin: Failed to reload systemd');
+                }
+            }
+        } catch (Exception $e) {
+            error_log('MulticastSnapin: Error installing service - ' . $e->getMessage());
+        }
     }
 }

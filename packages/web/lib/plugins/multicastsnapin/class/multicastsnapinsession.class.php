@@ -277,14 +277,33 @@ class MulticastSnapinSession extends FOGController
     }
 
     /**
-     * Cancel this session
+     * Cancel this session (same pattern as MulticastSession)
      *
      * @return object This object for chaining
      */
     public function cancel()
     {
-        return $this->set('stateID', 3)
-            ->set('completetime', self::formatTime('now', 'Y-m-d H:i:s'))
+        return $this
+            ->set('stateID', self::getCancelledState())
+            ->set('name', '')
+            ->set('clients', 0)
+            ->set('completetime', self::niceDate()->format('Y-m-d H:i:s'))
+            ->save();
+    }
+
+    /**
+     * Complete this session (same pattern as MulticastSession)
+     *
+     * @return object This object for chaining
+     */
+    public function complete()
+    {
+        return $this
+            ->set('stateID', self::getCompleteState())
+            ->set('name', '')
+            ->set('clients', 0)
+            ->set('percent', 100)
+            ->set('completetime', self::niceDate()->format('Y-m-d H:i:s'))
             ->save();
     }
 
@@ -295,19 +314,16 @@ class MulticastSnapinSession extends FOGController
      */
     public function markInProgress()
     {
-        return $this->set('stateID', 1)->save();
+        return $this->set('stateID', self::getProgressState())->save();
     }
 
     /**
-     * Mark session as complete
+     * Mark session as complete (deprecated - use complete() instead)
      *
      * @return object This object for chaining
      */
     public function markComplete()
     {
-        return $this->set('stateID', 2)
-            ->set('completetime', self::formatTime('now', 'Y-m-d H:i:s'))
-            ->set('percent', 100)
-            ->save();
+        return $this->complete();
     }
 }
