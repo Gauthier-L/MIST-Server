@@ -720,21 +720,19 @@ class MulticastSnapinManagementPage extends FOGPage
 
                 // Generate wrapper script
                 if ($osType === 'windows') {
-                    $wrapperScript = self::getClass('MulticastSnapinWrapper')
-                        ->generateWindowsScript(
-                            $Session,
-                            $Snapin,
-                            $SnapinTask->get('id'),
-                            $serverIP
-                        );
+                    $wrapperScript = MulticastSnapinWrapper::generateWindowsScript(
+                        $Session,
+                        $Snapin,
+                        $SnapinTask->get('id'),
+                        $serverIP
+                    );
                 } else {
-                    $wrapperScript = self::getClass('MulticastSnapinWrapper')
-                        ->generateLinuxScript(
-                            $Session,
-                            $Snapin,
-                            $SnapinTask->get('id'),
-                            $serverIP
-                        );
+                    $wrapperScript = MulticastSnapinWrapper::generateLinuxScript(
+                        $Session,
+                        $Snapin,
+                        $SnapinTask->get('id'),
+                        $serverIP
+                    );
                 }
 
                 // Calculate wrapper hash (SHA512 to match FOG's hash system)

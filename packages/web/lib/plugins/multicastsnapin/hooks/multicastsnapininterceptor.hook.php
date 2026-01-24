@@ -10,16 +10,6 @@
  * @license  http://opensource.org/licenses/gpl-3.0 GPLv3
  * @link     https://fogproject.org
  */
-
-/**
- * MulticastSnapinInterceptor hook
- *
- * @category Plugin
- * @package  FOGProject
- * @author   Gauthier-L, University of Lille, Campus-Gare RBX
- * @license  http://opensource.org/licenses/gpl-3.0 GPLv3
- * @link     https://fogproject.org
- */
 class MulticastSnapinInterceptor extends Hook
 {
     /**
@@ -118,7 +108,15 @@ class MulticastSnapinInterceptor extends Hook
         $arguments['StorageNode'] = $VirtualNode;
 
         // Also modify the Snapin object to have wrapper metadata
+        if (!isset($arguments['Snapin'])) {
+            return;
+        }
+
         $Snapin = $arguments['Snapin'];
+        if (!$Snapin || !$Snapin->isValid()) {
+            return;
+        }
+
         $osType = $WrapperEntry->get('ostype');
 
         $wrapperFilename = sprintf(

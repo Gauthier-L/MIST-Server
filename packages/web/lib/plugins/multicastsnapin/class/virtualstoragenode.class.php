@@ -10,16 +10,6 @@
  * @license  http://opensource.org/licenses/gpl-3.0 GPLv3
  * @link     https://fogproject.org
  */
-
-/**
- * VirtualStorageNode class
- *
- * @category Plugin
- * @package  FOGProject
- * @author   Gauthier-L, University of Lille, Campus-Gare RBX
- * @license  http://opensource.org/licenses/gpl-3.0 GPLv3
- * @link     https://fogproject.org
- */
 class VirtualStorageNode
 {
     /**
@@ -85,7 +75,7 @@ class VirtualStorageNode
     }
 
     /**
-     * Magic getter for location_url
+     * Public property for location_url compatibility
      *
      * @var string
      */
