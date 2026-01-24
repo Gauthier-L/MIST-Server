@@ -1,6 +1,6 @@
 # FOG MulticastSnapin Plugin
 
-Plugin pour MIST (FOG fork) permettant le déploiement multicast de snapins vers plusieurs machines simultanément.
+Plugin pour FOG permettant le déploiement multicast de snapins vers plusieurs machines simultanément.
 
 ## Description
 
@@ -32,23 +32,23 @@ packages/
 
 ### Prérequis
 
-- MIST Server (FOG fork) fonctionnel
+- FOG Server fonctionnel
 - udpcast installé (\`/usr/local/sbin/udp-sender\`)
 - PHP 7.0+
 - Accès root pour l'installation du service systemd
 
 ### Installation Automatique (Recommandée)
 
-1. **Copier les fichiers du plugin** dans votre installation MIST :
+1. **Copier les fichiers du plugin** dans votre installation FOG :
    \`\`\`bash
-   # Se placer dans le dépôt MIST-Server
-   cd /path/to/MIST-Server
+   # Se placer dans le dépôt FOG-Server
+   cd /path/to/FOG-Server
 
    # Copier les fichiers du plugin (préserver l'arborescence)
    cp -r /path/to/multicastsnapin-plugin/packages/* packages/
    \`\`\`
 
-2. **Activer le plugin** via l'interface web MIST :
+2. **Activer le plugin** via l'interface web FOG :
    - Aller dans **Plugin Management**
    - Trouver **Multicast Snapin**
    - Cliquer sur **Activate**
@@ -131,7 +131,7 @@ Voir [\`packages/web/lib/plugins/multicastsnapin/README.md\`](packages/web/lib/p
 
 - **Logs** : \`journalctl -u FOGMulticastSnapinManager -f\`
 - **Documentation FOG** : https://fogproject.org
-- **Issues** : Ouvrir une issue sur le dépôt MIST
+- **Issues** : Ouvrir une issue sur GitHub
 
 ## Licence
 
@@ -139,10 +139,10 @@ GPL v3
 
 ## Auteurs
 
-MIST Team - Plugin développé pour optimiser les déploiements de snapins sur grands parcs.
+Gauthier-L, University of Lille, Campus-Gare RBX - Plugin développé pour optimiser les déploiements de snapins sur grands parcs.
 
 ---
 
-**Version** : 1.0.0  
-**Testé avec** : MIST Server (FOG fork)  
+**Version** : 1.0.0
+**Testé avec** : FOG Server
 **Dépendances** : udpcast, systemd, PHP 7.0+
