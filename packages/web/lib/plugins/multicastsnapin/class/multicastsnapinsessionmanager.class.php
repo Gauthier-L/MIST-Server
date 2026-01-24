@@ -59,6 +59,27 @@ class MulticastSnapinSessionManager extends FOGManagerController
             return false;
         }
 
+        // Create table for wrapper scripts and metadata
+        $sql = "CREATE TABLE IF NOT EXISTS `multicastSnapinWrappers` (
+            `mswID` INTEGER NOT NULL AUTO_INCREMENT,
+            `mswSessionID` INTEGER NOT NULL,
+            `mswHostID` INTEGER NOT NULL,
+            `mswSnapinJobID` INTEGER NOT NULL,
+            `mswSnapinTaskID` INTEGER NOT NULL,
+            `mswScript` LONGTEXT NOT NULL,
+            `mswHash` VARCHAR(128) NOT NULL,
+            `mswOSType` VARCHAR(10) NOT NULL,
+            `mswCreatedTime` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`mswID`),
+            UNIQUE KEY `unique_session_host` (`mswSessionID`, `mswHostID`),
+            KEY `mswSnapinTaskID` (`mswSnapinTaskID`),
+            KEY `mswHostID` (`mswHostID`)
+        ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8 ROW_FORMAT=DYNAMIC";
+
+        if (!self::$DB->query($sql)) {
+            return false;
+        }
+
         // Install service automatically (Option 1)
         $this->_installService();
 
@@ -73,6 +94,9 @@ class MulticastSnapinSessionManager extends FOGManagerController
     public function uninstall()
     {
         // Drop tables
+        $sql = "DROP TABLE IF EXISTS `multicastSnapinWrappers`";
+        self::$DB->query($sql);
+
         $sql = "DROP TABLE IF EXISTS `multicastSnapinSessionsAssoc`";
         self::$DB->query($sql);
 

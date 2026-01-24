@@ -32,23 +32,31 @@ class MulticastSnapinWrapper extends FOGBase
     /**
      * Generate Windows PowerShell wrapper script
      *
-     * @param object $session The multicast session
-     * @param object $snapin  The snapin object
+     * @param object $session  The multicast session
+     * @param object $snapin   The snapin object
+     * @param int    $taskID   The snapin task ID
+     * @param string $serverIP The FOG server IP
      *
      * @return string The PowerShell script content
      */
-    public static function generateWindowsScript($session, $snapin)
+    public static function generateWindowsScript($session, $snapin, $taskID, $serverIP = null)
     {
-        $serverIP = self::getSetting('FOG_TFTP_HOST');
+        if ($serverIP === null) {
+            $serverIP = self::getSetting('FOG_TFTP_HOST');
+        }
         $port = $session->get('port');
         $interface = $session->get('interface');
         $multicastAddress = self::getSetting('FOG_MULTICAST_ADDRESS') ?: '224.0.0.1';
 
         $snapinName = $snapin->get('name');
         $snapinFile = $snapin->get('file');
-        $snapinArgs = $snapin->get('args');
-        $snapinRunWith = $snapin->get('runWith') ?: 'cmd.exe';
-        $snapinRunWithArgs = $snapin->get('runWithArgs') ?: '/c';
+        $snapinArgs = $snapin->get('args') ?: '';
+        $snapinRunWith = $snapin->get('runWith') ?: '';
+        $snapinRunWithArgs = $snapin->get('runWithArgs') ?: '';
+        $snapinPack = (bool)$snapin->get('packtype');
+        $snapinTimeout = $snapin->get('timeout') ?: 0;
+        $snapinReboot = (bool)$snapin->get('reboot');
+        $snapinShutdown = (bool)$snapin->get('shutdown');
 
         $script = <<<'POWERSHELL'
 # FOG Multicast Snapin Wrapper - Windows
@@ -58,6 +66,11 @@ $ErrorActionPreference = "Stop"
 $LogFile = "$env:TEMP\fog-multicast-snapin.log"
 $SnapinFile = "$env:TEMP\{SNAPIN_FILE}"
 $UdpReceiverPath = "$env:ProgramFiles\udpcast\udp-receiver.exe"
+$IsPack = {IS_PACK}
+$SnapinTimeout = {SNAPIN_TIMEOUT}
+$TaskID = {TASK_ID}
+$ServerIP = "{SERVER_IP}"
+$ExtractPath = "$env:TEMP\fog-snapin-extract-{TASK_ID}"
 
 function Write-Log {
     param($Message)
@@ -77,16 +90,16 @@ function Install-UdpReceiver {
 
     try {
         # Download udpcast for Windows
-        $udpcastUrl = "http://{SERVER_IP}/fog/service/udpcast/udpcast-windows.zip"
+        $udpcastUrl = "http://$ServerIP/fog/service/udpcast/udpcast-windows.zip"
         $downloadPath = "$env:TEMP\udpcast.zip"
 
         Write-Log "Downloading from $udpcastUrl..."
         Invoke-WebRequest -Uri $udpcastUrl -OutFile $downloadPath -UseBasicParsing
 
         # Extract
-        $extractPath = "$env:ProgramFiles\udpcast"
-        New-Item -ItemType Directory -Path $extractPath -Force | Out-Null
-        Expand-Archive -Path $downloadPath -DestinationPath $extractPath -Force
+        $extractPathUdp = "$env:ProgramFiles\udpcast"
+        New-Item -ItemType Directory -Path $extractPathUdp -Force | Out-Null
+        Expand-Archive -Path $downloadPath -DestinationPath $extractPathUdp -Force
 
         Write-Log "udpcast installed successfully"
         return $true
@@ -99,12 +112,12 @@ function Install-UdpReceiver {
 
 function Receive-MulticastSnapin {
     Write-Log "Starting multicast reception..."
-    Write-Log "Server: {SERVER_IP}, Port: {PORT}, Address: {MULTICAST_ADDRESS}"
+    Write-Log "Server: $ServerIP, Port: {PORT}, Address: {MULTICAST_ADDRESS}"
 
     try {
         $receiverArgs = @(
             "--portbase", "{PORT}",
-            "--mcast-rdv-address", "{SERVER_IP}",
+            "--mcast-rdv-address", $ServerIP,
             "--file", $SnapinFile,
             "--nokbd"
         )
@@ -136,6 +149,29 @@ function Receive-MulticastSnapin {
     }
 }
 
+function Process-SnapinPack {
+    Write-Log "Processing snapin pack..."
+
+    try {
+        # Create extraction directory
+        if (Test-Path $ExtractPath) {
+            Remove-Item $ExtractPath -Recurse -Force
+        }
+        New-Item -ItemType Directory -Path $ExtractPath -Force | Out-Null
+
+        # Extract ZIP
+        Write-Log "Extracting to: $ExtractPath"
+        Expand-Archive -Path $SnapinFile -DestinationPath $ExtractPath -Force
+
+        Write-Log "Pack extracted successfully"
+        return $true
+    }
+    catch {
+        Write-Log "ERROR: Failed to extract pack: $_"
+        return $false
+    }
+}
+
 function Execute-Snapin {
     Write-Log "Executing snapin: {SNAPIN_NAME}"
 
@@ -144,24 +180,57 @@ function Execute-Snapin {
         $executorArgs = "{SNAPIN_RUNWITHARGS}"
         $snapinArgs = "{SNAPIN_ARGS}"
 
-        # Build full argument list
-        if ($snapinArgs) {
-            $fullArgs = "$executorArgs `"$SnapinFile`" $snapinArgs"
-        } else {
-            $fullArgs = "$executorArgs `"$SnapinFile`""
+        # Handle pack snapins
+        if ($IsPack) {
+            # Replace [FOG_SNAPIN_PATH] token in runWith and runWithArgs
+            $executor = $executor -replace '\[FOG_SNAPIN_PATH\]', $ExtractPath
+            $executorArgs = $executorArgs -replace '\[FOG_SNAPIN_PATH\]', $ExtractPath
+
+            # For packs, use expanded runWithArgs directly
+            $fullArgs = [Environment]::ExpandEnvironmentVariables($executorArgs)
+            Write-Log "Pack mode: executor=$executor, args=$fullArgs"
+        }
+        else {
+            # Single snapin mode: executor runWithArgs "snapinPath" args
+            if ($snapinArgs) {
+                $fullArgs = "$executorArgs `"$SnapinFile`" $snapinArgs"
+            } else {
+                $fullArgs = "$executorArgs `"$SnapinFile`""
+            }
+            Write-Log "Single mode: executor=$executor, args=$fullArgs"
         }
 
         Write-Log "Running: $executor $fullArgs"
 
-        $process = Start-Process -FilePath $executor `
-            -ArgumentList $fullArgs `
-            -NoNewWindow `
-            -Wait `
-            -PassThru
+        # Execute with timeout if specified
+        if ($SnapinTimeout -gt 0) {
+            Write-Log "Timeout: $SnapinTimeout seconds"
+            $job = Start-Job -ScriptBlock {
+                param($exec, $args)
+                $p = Start-Process -FilePath $exec -ArgumentList $args -NoNewWindow -Wait -PassThru
+                return $p.ExitCode
+            } -ArgumentList $executor, $fullArgs
 
-        $exitCode = $process.ExitCode
+            if (Wait-Job $job -Timeout $SnapinTimeout) {
+                $exitCode = Receive-Job $job
+            } else {
+                Write-Log "ERROR: Snapin execution timed out"
+                Stop-Job $job
+                Remove-Job $job
+                return 1
+            }
+        }
+        else {
+            $process = Start-Process -FilePath $executor `
+                -ArgumentList $fullArgs `
+                -NoNewWindow `
+                -Wait `
+                -PassThru
+
+            $exitCode = $process.ExitCode
+        }
+
         Write-Log "Snapin execution completed with exit code: $exitCode"
-
         return $exitCode
     }
     catch {
@@ -170,29 +239,77 @@ function Execute-Snapin {
     }
 }
 
+function Report-Status {
+    param($ExitCode)
+
+    try {
+        $reportUrl = "http://$ServerIP/fog/service/snapins.checkin.php"
+        $body = @{
+            mac = (Get-NetAdapter | Where-Object {$_.Status -eq 'Up'} | Select-Object -First 1).MacAddress
+            taskid = $TaskID
+            exitcode = $ExitCode
+        }
+
+        Write-Log "Reporting status to server: exitcode=$ExitCode"
+        Invoke-WebRequest -Uri $reportUrl -Method POST -Body $body -UseBasicParsing | Out-Null
+        Write-Log "Status reported successfully"
+    }
+    catch {
+        Write-Log "WARNING: Failed to report status: $_"
+    }
+}
+
 # Main execution
 try {
     Write-Log "=== FOG Multicast Snapin Wrapper Started ==="
     Write-Log "Snapin: {SNAPIN_NAME}"
+    Write-Log "Pack mode: $IsPack"
 
     # Step 1: Ensure udp-receiver is available
     if (-not (Install-UdpReceiver)) {
         Write-Log "FATAL: Cannot install udp-receiver"
+        Report-Status -ExitCode 1
         exit 1
     }
 
     # Step 2: Receive snapin via multicast
     if (-not (Receive-MulticastSnapin)) {
         Write-Log "FATAL: Failed to receive snapin"
+        Report-Status -ExitCode 2
         exit 2
     }
 
-    # Step 3: Execute the snapin
+    # Step 3: Process pack if needed
+    if ($IsPack) {
+        if (-not (Process-SnapinPack)) {
+            Write-Log "FATAL: Failed to process pack"
+            Report-Status -ExitCode 3
+            exit 3
+        }
+    }
+
+    # Step 4: Execute the snapin
     $exitCode = Execute-Snapin
 
-    # Step 4: Cleanup
+    # Step 5: Report status
+    Report-Status -ExitCode $exitCode
+
+    # Step 6: Cleanup
     if (Test-Path $SnapinFile) {
         Remove-Item $SnapinFile -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path $ExtractPath) {
+        Remove-Item $ExtractPath -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    # Step 7: Handle reboot/shutdown
+    if ({SNAPIN_REBOOT} -eq $true) {
+        Write-Log "Rebooting system..."
+        shutdown /r /t 10 /c "FOG Snapin requires reboot"
+    }
+    elseif ({SNAPIN_SHUTDOWN} -eq $true) {
+        Write-Log "Shutting down system..."
+        shutdown /s /t 10 /c "FOG Snapin requires shutdown"
     }
 
     Write-Log "=== Wrapper completed with exit code: $exitCode ==="
@@ -200,6 +317,7 @@ try {
 }
 catch {
     Write-Log "FATAL ERROR: $_"
+    Report-Status -ExitCode 99
     exit 99
 }
 POWERSHELL;
@@ -213,6 +331,11 @@ POWERSHELL;
         $script = str_replace('{SNAPIN_ARGS}', addslashes($snapinArgs), $script);
         $script = str_replace('{SNAPIN_RUNWITH}', addslashes($snapinRunWith), $script);
         $script = str_replace('{SNAPIN_RUNWITHARGS}', addslashes($snapinRunWithArgs), $script);
+        $script = str_replace('{IS_PACK}', $snapinPack ? '$true' : '$false', $script);
+        $script = str_replace('{SNAPIN_TIMEOUT}', $snapinTimeout, $script);
+        $script = str_replace('{TASK_ID}', $taskID, $script);
+        $script = str_replace('{SNAPIN_REBOOT}', $snapinReboot ? '$true' : '$false', $script);
+        $script = str_replace('{SNAPIN_SHUTDOWN}', $snapinShutdown ? '$true' : '$false', $script);
 
         return $script;
     }
@@ -220,23 +343,31 @@ POWERSHELL;
     /**
      * Generate Linux bash wrapper script
      *
-     * @param object $session The multicast session
-     * @param object $snapin  The snapin object
+     * @param object $session  The multicast session
+     * @param object $snapin   The snapin object
+     * @param int    $taskID   The snapin task ID
+     * @param string $serverIP The FOG server IP
      *
      * @return string The bash script content
      */
-    public static function generateLinuxScript($session, $snapin)
+    public static function generateLinuxScript($session, $snapin, $taskID, $serverIP = null)
     {
-        $serverIP = self::getSetting('FOG_TFTP_HOST');
+        if ($serverIP === null) {
+            $serverIP = self::getSetting('FOG_TFTP_HOST');
+        }
         $port = $session->get('port');
         $interface = $session->get('interface');
         $multicastAddress = self::getSetting('FOG_MULTICAST_ADDRESS') ?: '224.0.0.1';
 
         $snapinName = $snapin->get('name');
         $snapinFile = $snapin->get('file');
-        $snapinArgs = $snapin->get('args');
-        $snapinRunWith = $snapin->get('runWith') ?: '/bin/bash';
+        $snapinArgs = $snapin->get('args') ?: '';
+        $snapinRunWith = $snapin->get('runWith') ?: '';
         $snapinRunWithArgs = $snapin->get('runWithArgs') ?: '';
+        $snapinPack = (bool)$snapin->get('packtype');
+        $snapinTimeout = $snapin->get('timeout') ?: 0;
+        $snapinReboot = (bool)$snapin->get('reboot');
+        $snapinShutdown = (bool)$snapin->get('shutdown');
 
         $script = <<<'BASH'
 #!/bin/bash

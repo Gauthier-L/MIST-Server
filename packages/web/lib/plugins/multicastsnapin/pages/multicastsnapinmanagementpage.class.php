@@ -442,6 +442,9 @@ class MulticastSnapinManagementPage extends FOGPage
                 throw new Exception(_('Failed to create session'));
             }
 
+            // Auto-create SnapinJobs and SnapinTasks for each host
+            $this->_createSnapinTasksForSession($Session, $Group, $Snapin, $masterNode);
+
             self::$HookManager->processEvent(
                 'MULTICASTSNAPIN_ADD',
                 array('MulticastSnapinSession' => &$Session)
@@ -622,5 +625,166 @@ class MulticastSnapinManagementPage extends FOGPage
         }
 
         $this->redirect(sprintf('?node=%s', $this->node));
+    }
+
+    /**
+     * Create SnapinJobs and SnapinTasks for all hosts in a multicast session
+     *
+     * @param object $Session     The multicast session
+     * @param object $Group       The host group
+     * @param object $Snapin      The snapin to deploy
+     * @param object $StorageNode The master storage node
+     *
+     * @return void
+     * @throws Exception On failure
+     */
+    private function _createSnapinTasksForSession($Session, $Group, $Snapin, $StorageNode)
+    {
+        $sessionID = $Session->get('id');
+        $snapinID = $Snapin->get('id');
+        $groupID = $Group->get('id');
+
+        // Get all hosts in the group
+        $hostIDs = self::getSubObjectIDs(
+            'GroupAssociation',
+            array('groupID' => $groupID),
+            'hostID'
+        );
+
+        if (empty($hostIDs)) {
+            throw new Exception(_('No hosts found in group'));
+        }
+
+        $hosts = self::getClass('HostManager')->find(
+            array('id' => $hostIDs)
+        );
+
+        $createdJobs = 0;
+        $createdTasks = 0;
+        $now = self::niceDate()->format('Y-m-d H:i:s');
+        $serverIP = self::getSetting('FOG_TFTP_HOST');
+
+        foreach ($hosts as &$Host) {
+            if (!$Host->isValid()) {
+                continue;
+            }
+
+            try {
+                // Create SnapinJob for this host
+                $SnapinJob = self::getClass('SnapinJob')
+                    ->set('hostID', $Host->get('id'))
+                    ->set('stateID', self::getQueuedState())
+                    ->set('createdTime', $now);
+
+                if (!$SnapinJob->save()) {
+                    throw new Exception(
+                        sprintf(
+                            _('Failed to create SnapinJob for host %s'),
+                            $Host->get('name')
+                        )
+                    );
+                }
+
+                $createdJobs++;
+
+                // Create SnapinTask pointing to the real snapin
+                $SnapinTask = self::getClass('SnapinTask')
+                    ->set('jobID', $SnapinJob->get('id'))
+                    ->set('snapinID', $snapinID)
+                    ->set('stateID', self::getQueuedState())
+                    ->set('checkin', $now);
+
+                if (!$SnapinTask->save()) {
+                    throw new Exception(
+                        sprintf(
+                            _('Failed to create SnapinTask for host %s'),
+                            $Host->get('name')
+                        )
+                    );
+                }
+
+                $createdTasks++;
+
+                // Detect host OS type (Windows or Linux)
+                // Use inventory or default to Windows
+                $osType = 'windows';
+                $osName = strtolower($Host->get('osname'));
+                if (strpos($osName, 'linux') !== false
+                    || strpos($osName, 'ubuntu') !== false
+                    || strpos($osName, 'debian') !== false
+                    || strpos($osName, 'centos') !== false
+                    || strpos($osName, 'redhat') !== false
+                ) {
+                    $osType = 'linux';
+                }
+
+                // Generate wrapper script
+                if ($osType === 'windows') {
+                    $wrapperScript = MulticastSnapinWrapper::generateWindowsScript(
+                        $Session,
+                        $Snapin,
+                        $SnapinTask->get('id'),
+                        $serverIP
+                    );
+                } else {
+                    $wrapperScript = MulticastSnapinWrapper::generateLinuxScript(
+                        $Session,
+                        $Snapin,
+                        $SnapinTask->get('id'),
+                        $serverIP
+                    );
+                }
+
+                // Calculate wrapper hash (SHA512 to match FOG's hash system)
+                $wrapperHash = hash('sha512', $wrapperScript);
+
+                // Create wrapper entry
+                $WrapperEntry = self::getClass('MulticastSnapinWrapperEntry')
+                    ->set('sessionID', $sessionID)
+                    ->set('hostID', $Host->get('id'))
+                    ->set('snapinjobID', $SnapinJob->get('id'))
+                    ->set('snapintaskID', $SnapinTask->get('id'))
+                    ->set('script', $wrapperScript)
+                    ->set('hash', $wrapperHash)
+                    ->set('ostype', $osType)
+                    ->set('createdtime', $now);
+
+                if (!$WrapperEntry->save()) {
+                    throw new Exception(
+                        sprintf(
+                            _('Failed to create wrapper entry for host %s'),
+                            $Host->get('name')
+                        )
+                    );
+                }
+
+            } catch (Exception $e) {
+                // Log error but continue with other hosts
+                self::getClass('MulticastSnapinManager')->outall(
+                    sprintf(
+                        ' * ERROR creating task for host %s: %s',
+                        $Host->get('name'),
+                        $e->getMessage()
+                    )
+                );
+                continue;
+            }
+        }
+        unset($Host);
+
+        if ($createdJobs == 0 || $createdTasks == 0) {
+            throw new Exception(
+                _('Failed to create any snapin tasks for the session')
+            );
+        }
+
+        self::getClass('MulticastSnapinManager')->outall(
+            sprintf(
+                ' * Created %d SnapinJobs and %d SnapinTasks for session %d',
+                $createdJobs,
+                $createdTasks,
+                $sessionID
+            )
+        );
     }
 }
