@@ -92,9 +92,9 @@ class MulticastSnapinInterceptor extends Hook
         $serverIP = self::getSetting('FOG_TFTP_HOST');
         $webRoot = self::getSetting('FOG_WEB_ROOT');
 
-        // Build wrapper URL
+        // Build wrapper URL pointing to plugin service directory
         $wrapperURL = sprintf(
-            'http://%s%s/service/multicast-snapin-wrapper.php?taskid=%d',
+            'http://%s%s/lib/plugins/multicastsnapin/service/wrapper.php?taskid=%d',
             $serverIP,
             $webRoot,
             $taskID

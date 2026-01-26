@@ -13,7 +13,7 @@
  * @link     https://fogproject.org
  */
 
-require_once '../commons/base.inc.php';
+require_once '../../../../commons/base.inc.php';
 
 // Get parameters
 $taskID = isset($_REQUEST['taskid']) ? (int)$_REQUEST['taskid'] : null;
